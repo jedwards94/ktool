@@ -69,13 +69,17 @@ type ScriptCommand struct {
 }
 
 // Creates the command struct ready to execute
-func (s ScriptCommand) NewWithFlags(kClient kubernetes.Clientset, flags ScriptFlags) ScriptCommand {
+func (s ScriptCommand) NewWithFlags(
+	kClient kubernetes.Clientset,
+	log logger.Log,
+	flags ScriptFlags,
+) ScriptCommand {
 	return ScriptCommand{
 		flags:   flags,
 		kClient: &kClient,
 		uuid:    uuid.NewString()[:5],
 		context: context.Background(),
-		logger:  logger.Log{}.New("script"),
+		logger:  log.New("script"),
 	}
 }
 
@@ -84,19 +88,26 @@ func (s *ScriptCommand) loadTemplate() *batchv1.Job {
 	job := &batchv1.Job{}
 	if *s.flags.JobTemplate != "" {
 		yamlFile, _ := path_utils.ExpandUser(*(s.flags.JobTemplate))
+
+		s.logger.Debug("loading template job from %s", yamlFile)
 		yamlJob, err := os.ReadFile(yamlFile)
 		if err != nil {
+			s.logger.Fatal("fatal error while loading template, %v", err)
 			panic(err)
 		}
+
+		s.logger.Debug("decoding template to job yaml")
 		decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(yamlJob), 1024)
 		decodeErr := decoder.Decode(job)
 		if decodeErr != nil {
+			s.logger.Fatal("fatal error while decoding template, %v", err)
 			panic(decodeErr)
 		}
 	}
 
 	// Make sure to have at least one empty container to overwrite
 	if len(job.Spec.Template.Spec.Containers) == 0 {
+		s.logger.Debug("no container in template, adding empty one")
 		job.Spec.Template.Spec.Containers = []v1.Container{
 			{},
 		}
@@ -109,8 +120,11 @@ func (s *ScriptCommand) loadScript() string {
 	scriptString := ""
 	if *s.flags.Script != "" {
 		file, _ := path_utils.ExpandUser(*(s.flags.Script))
+
+		s.logger.Debug("loading script from %s", file)
 		script, err := os.ReadFile(file)
 		if err != nil {
+			s.logger.Fatal("fatal error while reading script file, %v", err)
 			panic(err)
 		}
 
@@ -202,13 +216,21 @@ func (s *ScriptCommand) createJobManifest() *batchv1.Job {
 		},
 	}
 
+	s.logger.Debug("overwriting %#v with %#v", template.ObjectMeta, &job.ObjectMeta)
 	mergo.Merge(&(template.ObjectMeta), job.ObjectMeta, mergo.WithOverride)
+
+	s.logger.Debug("overwriting %#v with %#v", template.TypeMeta, &job.TypeMeta)
 	mergo.Merge(&(template.TypeMeta), job.TypeMeta, mergo.WithOverride)
 	if template.Spec.TTLSecondsAfterFinished == nil {
+		s.logger.Debug("setting ttl to %d", ttl)
 		template.Spec.TTLSecondsAfterFinished = &ttl
 	}
+
+	s.logger.Debug("pod volumes %#v", job.Spec.Template.Spec.Volumes)
 	template.Spec.Template.Spec.Volumes = job.Spec.Template.Spec.Volumes
+	s.logger.Debug("pod restart policy %#v", job.Spec.Template.Spec.RestartPolicy)
 	template.Spec.Template.Spec.RestartPolicy = job.Spec.Template.Spec.RestartPolicy
+	s.logger.Debug("overwriting template first container with %#v", &job.Spec.Template.Spec.Containers[0])
 	mergo.Merge(&(template.Spec.Template.Spec.Containers[0]), job.Spec.Template.Spec.Containers[0], mergo.WithOverride)
 
 	return template
@@ -222,7 +244,7 @@ func (s *ScriptCommand) createJob() error {
 		s.logger.Error("error while creating job, %v", err)
 		return err
 	}
-	s.logger.Info("created job %s on namespace %s", createdJob.Name, createdJob.Namespace)
+	s.logger.Debug("created job %s on namespace %s", createdJob.Name, createdJob.Namespace)
 	s.job = createdJob
 	return nil
 }
@@ -237,7 +259,7 @@ func (s *ScriptCommand) deleteJob() error {
 		s.logger.Error("error while deleting job, %v", err)
 		return err
 	}
-	s.logger.Info("deleted job %s on namespace %s", s.job.Name, s.job.Namespace)
+	s.logger.Debug("deleted job %s on namespace %s", s.job.Name, s.job.Namespace)
 	s.job = nil
 	return nil
 }
@@ -259,6 +281,7 @@ func (s *ScriptCommand) createConfigMapManifest() *v1.ConfigMap {
 			fmt.Sprintf(cmDataKeyFmt, path.Ext(*s.flags.Script)): script,
 		},
 	}
+	s.logger.Debug("configmap script data %#v", cnf.Data)
 	return cnf
 }
 
@@ -270,7 +293,7 @@ func (s *ScriptCommand) createConfigMap() error {
 		s.logger.Error("error while creating configmap, %v", err)
 		return err
 	}
-	s.logger.Info("created configmap %s on namespace %s", conf.Name, conf.Namespace)
+	s.logger.Debug("created configmap %s on namespace %s", conf.Name, conf.Namespace)
 	s.configMap = conf
 	return nil
 }
@@ -281,13 +304,14 @@ func (s *ScriptCommand) deleteConfigMap() {
 		s.logger.Error("error while deleting configmap, %v", err)
 		panic(err)
 	}
-	s.logger.Info("deleted configmap %s on namespace %s", s.configMap.Name, s.configMap.Namespace)
+	s.logger.Debug("deleted configmap %s on namespace %s", s.configMap.Name, s.configMap.Namespace)
 	s.configMap = nil
 }
 
 // Gets the pod related to the Job created
 func (s *ScriptCommand) jobPod() (*v1.Pod, error) {
 	labelSelector := fmt.Sprintf(labelSelectorFmt, s.job.Name)
+	s.logger.Debug("listing pods with label selector \"%s\" on namespace %s", labelSelector, *s.flags.Namespace)
 	pods, err := s.kClient.CoreV1().Pods(*s.flags.Namespace).List(s.context, metav1.ListOptions{
 		LabelSelector: labelSelector,
 		Limit:         1,
@@ -323,7 +347,8 @@ func (s *ScriptCommand) podByName(name string) (*v1.Pod, error) {
 // Monitors the pod status and phase to notify when it dies or ends successfully
 // Intended to be called a a go rotuine
 func (s *ScriptCommand) monitorPod(done chan bool, name string) {
-	l := logger.Log{}.New(name)
+	l := s.logger.New(name)
+	s.logger.Debug("monitoring pod \"%s\" started", name)
 	for {
 		monitorPod, err := s.podByName(name)
 		if err != nil {
@@ -343,7 +368,7 @@ func (s *ScriptCommand) monitorPod(done chan bool, name string) {
 // Streams the logs of a named pod to stdout
 // Intended to be called a a go rotuine
 func (s *ScriptCommand) streamPodLogs(done chan bool, name string) {
-	l := logger.Log{}.New(name)
+	l := s.logger.New(name)
 	req := s.kClient.CoreV1().Pods(*s.flags.Namespace).GetLogs(name, &v1.PodLogOptions{
 		Follow:    true,
 		Container: containerName,
@@ -374,8 +399,8 @@ func (s *ScriptCommand) streamPodLogs(done chan bool, name string) {
 // Waits for a given pod poitner to be in Running Phase
 // Intended to be called a a go rotuine
 func (s *ScriptCommand) waitForPodToStart(done chan bool, pod *v1.Pod) {
-	l := logger.Log{}.New(pod.Name)
-	l.Info("waiting for pod %s to be running", pod.Name)
+	l := s.logger.New(pod.Name)
+	l.Debug("waiting for pod %s to be running", pod.Name)
 loop:
 	for {
 		pod, err := s.podByName(pod.Name)
@@ -447,6 +472,7 @@ func (s *ScriptCommand) dryRun() {
 // additionally if the attach flag is true, this will also stream the logs to stdout.
 func (s *ScriptCommand) Exec() {
 	if s.flags.DryRun {
+		s.logger.Debug("dry run started")
 		s.dryRun()
 	} else {
 		s.run()

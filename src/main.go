@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"ktool/src/commands"
+	"ktool/src/logger"
 	"os"
 	"path/filepath"
 
@@ -55,6 +56,23 @@ func main() {
 	} else {
 		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
 	}
+	logNoColor := flag.Bool("no-color", false, "(optional) print logs without color")
+	logLevel := flag.String("log-level", "info", "(optional) log level")
+
+	flag.Parse()
+	args := flag.Args()
+	if len(args) == 0 {
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	log := logger.Logger.WithGlobal(logger.LogOptionsParams{
+		NoColor: *logNoColor,
+		Level:   *logLevel,
+	})
+
+	mainLog := log.New("main")
+
 	scriptFile := scriptCmd.String("file", "", "(required) the script file to run")
 	scriptBaseImage := scriptCmd.String("image", "", "(required) the image where the script will be runned")
 	scriptJobTemplateFile := scriptCmd.String("template", "", "(optional) the kubernetes Job template to use")
@@ -64,21 +82,16 @@ func main() {
 	scriptAttach := scriptCmd.Bool("attach", false, "(optional) follow logs")
 	scriptDryRun := scriptCmd.Bool("dry-run", false, "(optional) print the kubernetes manifests but doesn't run anything")
 
-	flag.Parse()
-	args := flag.Args()
-	if len(args) == 0 {
-		flag.Usage()
-		os.Exit(1)
-	}
-
 	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
 	if err != nil {
+		mainLog.Fatal("fatal error getting kubernetes config, %v", err)
 		panic(err.Error())
 	}
 
 	// create the clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
+		mainLog.Fatal("fatal error creating kubernetes client, %v", err)
 		panic(err.Error())
 	}
 
@@ -88,12 +101,13 @@ func main() {
 	case "version":
 		versionCmd.Usage()
 	case "script":
+		mainLog.Debug("started command script")
 		scriptCmd.Parse(args[1:])
 		if pass := checkRequired([]string{"-file", "-image"}, args[1:]); !pass {
 			scriptCmd.Usage()
 			os.Exit(1)
 		}
-		cmd := commands.ScriptCommand{}.NewWithFlags(*clientset, commands.ScriptFlags{
+		cmd := commands.ScriptCommand{}.NewWithFlags(*clientset, log, commands.ScriptFlags{
 			JobTemplate: scriptJobTemplateFile,
 			Attach:      *scriptAttach,
 			DryRun:      *scriptDryRun,
