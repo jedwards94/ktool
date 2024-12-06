@@ -12,6 +12,10 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
+var Version string
+var Commit string
+var BuildTime string
+
 func checkRequired(reqFlags []string, flags []string) bool {
 	result := false
 	for _, reqFlag := range reqFlags {
@@ -26,6 +30,13 @@ func checkRequired(reqFlags []string, flags []string) bool {
 
 func main() {
 
+	versionCmd := flag.NewFlagSet("version", flag.ExitOnError)
+	versionCmd.Usage = func() {
+		fmt.Printf("version: %s\n", Version)
+		fmt.Printf("commit: %s\n", Commit)
+		fmt.Printf("vuild time: %s\n", BuildTime)
+		versionCmd.PrintDefaults()
+	}
 	scriptCmd := flag.NewFlagSet("script", flag.ExitOnError)
 	scriptCmd.Usage = func() {
 		fmt.Println("script flags:")
@@ -35,7 +46,7 @@ func main() {
 		fmt.Println("Usage of ktool: ktool [FLAGS] [COMMAND] [COMMAND_FLAGS]")
 		fmt.Println("ktool flags:")
 		flag.PrintDefaults()
-		fmt.Println("Available commands: script")
+		fmt.Println("Available commands: script, version")
 	}
 
 	var kubeconfig *string
@@ -74,6 +85,8 @@ func main() {
 	command := args[0]
 
 	switch command {
+	case "version":
+		versionCmd.Usage()
 	case "script":
 		scriptCmd.Parse(args[1:])
 		if pass := checkRequired([]string{"-file", "-image"}, args[1:]); !pass {

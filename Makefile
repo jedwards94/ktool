@@ -7,8 +7,12 @@ GO_LDFLAGS := -s -w
 ARGS := ""
 INSTALL_PATH := /usr/local/bin
 
+VERSION := $(shell git describe --tags --always)
+COMMIT := $(shell git rev-parse --short HEAD)
+BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+
 # Build targets
-.PHONY: all build docker-build clean run test lint install install-docker
+.PHONY: all build docker-build clean run install install-docker
 
 all: build
 
@@ -39,7 +43,10 @@ docker-build: clean
 build: $(GO_FILES)
 	@echo "Building $(APP_NAME)..."
 	@mkdir -p $(BUILD_DIR)
-	CGO_ENABLED=0 go build -C $(SRC_DIR) -ldflags="$(GO_LDFLAGS)" -o ../$(BUILD_DIR)/$(APP_NAME) .
+	CGO_ENABLED=0 go build \
+		-C $(SRC_DIR) \
+		-ldflags="$(GO_LDFLAGS) -X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.BuildTime=$(BUILD_TIME)" \
+		-o ../$(BUILD_DIR)/$(APP_NAME) .
 
 ## Run the application
 run: build
@@ -48,16 +55,6 @@ run: build
 run-go: 
 	@echo "Running $(APP_NAME)..."
 	@go run src/*.go $(ARGS)
-
-## Run tests
-test:
-	@echo "Running tests..."
-	go test ./... -v
-
-## Lint the code (requires golangci-lint)
-lint:
-	@echo "Linting the code..."
-	golangci-lint run
 
 ## Clean the build directory
 clean:
