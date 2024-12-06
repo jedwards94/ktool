@@ -1,0 +1,54 @@
+# Binaries for programs and plugins
+*.exe
+*.dll
+*.so
+*.dylib
+*.out
+*.a
+
+# Compiled object files
+*.o
+*.obj
+
+# Generated files
+*.cgo*
+_cgo_*
+
+# Go test binary
+*.test
+
+# Output of the 'go build' command
+/build/
+bin/
+dist/
+
+# Dependency directories (often used with vendoring)
+vendor/
+
+# IDE and editor config files
+.vscode/
+.idea/
+*.swp
+
+# Logs and debugging files
+*.log
+*.tmp
+*.trace
+
+# Docker
+*.env
+
+# Git
+*.orig
+*.patch
+
+# Temporary files
+*.bak
+*.tmp
+*.~*
+
+# Ignore local dev tools config
+.env.local
+.envrc
+
+.DS_Store
