@@ -11,6 +11,8 @@ VERSION := $(shell git describe --tags --always)
 COMMIT := $(shell git rev-parse --short HEAD)
 BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 
+DOCKER_IMAGE= $(APP_NAME)-builder:$(VERSION)
+
 # Build targets
 .PHONY: all build docker-build clean run install install-docker
 
@@ -34,10 +36,11 @@ docker-install: docker-build
 docker-build: clean
 	@echo "Building $(APP_NAME) through docker"
 	@mkdir -p $(BUILD_DIR)
-	docker build -t $(APP_NAME)-builder .
+	docker build -t $(DOCKER_IMAGE) .
 	docker run --rm \
 		-v $(shell pwd)/$(BUILD_DIR):/$(BUILD_DIR) \
-		$(APP_NAME)-builder cp /$(APP_NAME) /$(BUILD_DIR)/$(APP_NAME) 
+		$(DOCKER_IMAGE) cp /$(APP_NAME) /$(BUILD_DIR)/$(APP_NAME)
+	docker image rm -f $(DOCKER_IMAGE)
 
 ## Build the Go binary
 build: $(GO_FILES)

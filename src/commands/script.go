@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"io"
 	"ktool/src/logger"
-	"ktool/src/utils"
+	path_utils "ktool/src/utils/path"
+	string_utils "ktool/src/utils/strings"
 	"os"
 	"path"
 	"strings"
@@ -20,6 +21,30 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
+)
+
+const (
+	appLabel = "ktool-app"
+	extLabel = "script-extension"
+	annoType = "app.ktool.io/type"
+	annoUuid = "app.ktool.io/short-uuid"
+
+	genName       = "ktool-script-"
+	containerName = "ktool-script"
+	mountName     = "ktool-scripts"
+	mountPath     = "/ktool"
+	volName       = "ktool-scripts"
+
+	jobType       = "Job"
+	jobApiVersion = "batch/v1"
+
+	configMapType       = "ConfigMap"
+	configMapApiVersion = "v1"
+
+	cmdFmt           = "/ktool/script%s"
+	cmNameFmt        = "ktool-script-%s"
+	cmDataKeyFmt     = "script%s"
+	labelSelectorFmt = "job-name=%s"
 )
 
 type ScriptFlags struct {
@@ -58,18 +83,19 @@ func (s ScriptCommand) NewWithFlags(kClient kubernetes.Clientset, flags ScriptFl
 func (s *ScriptCommand) loadTemplate() *batchv1.Job {
 	job := &batchv1.Job{}
 	if *s.flags.JobTemplate != "" {
-		yamlFile, _ := utils.ExpandUser(*(s.flags.JobTemplate))
+		yamlFile, _ := path_utils.ExpandUser(*(s.flags.JobTemplate))
 		yamlJob, err := os.ReadFile(yamlFile)
 		if err != nil {
 			panic(err)
 		}
-		yamlDecoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(yamlJob), 1024)
-		decodeErr := yamlDecoder.Decode(job)
+		decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader(yamlJob), 1024)
+		decodeErr := decoder.Decode(job)
 		if decodeErr != nil {
 			panic(decodeErr)
 		}
 	}
 
+	// Make sure to have at least one empty container to overwrite
 	if len(job.Spec.Template.Spec.Containers) == 0 {
 		job.Spec.Template.Spec.Containers = []v1.Container{
 			{},
@@ -80,16 +106,17 @@ func (s *ScriptCommand) loadTemplate() *batchv1.Job {
 
 // Loads the script to be executed in the Job from the flag path and returns it as a string
 func (s *ScriptCommand) loadScript() string {
+	scriptString := ""
 	if *s.flags.Script != "" {
-		scriptFile, _ := utils.ExpandUser(*(s.flags.Script))
-		script, err := os.ReadFile(scriptFile)
+		file, _ := path_utils.ExpandUser(*(s.flags.Script))
+		script, err := os.ReadFile(file)
 		if err != nil {
 			panic(err)
 		}
 
-		return string(script[:])
+		scriptString = string(script[:])
 	}
-	return ""
+	return scriptString
 }
 
 // Creates a *v1.Job manifest, it takes the template (if none was passed a default empty one will be created)
@@ -102,32 +129,56 @@ func (s *ScriptCommand) createJobManifest() *batchv1.Job {
 	if templateLabels == nil {
 		templateLabels = map[string]string{}
 	}
-	templateLabels["ktool-app"] = "true"
-	templateLabels["script-extension"] = strings.TrimPrefix(path.Ext(*s.flags.Script), ".")
+	templateLabels[appLabel] = "true"
+	templateLabels[extLabel] = strings.TrimPrefix(path.Ext(*s.flags.Script), ".")
 
 	templateAnnotations := template.ObjectMeta.Annotations
 	if templateAnnotations == nil {
 		templateAnnotations = map[string]string{}
 	}
-	templateAnnotations["app.ktool.io/type"] = "script"
-	templateAnnotations["app.ktool.io/short-uuid"] = s.uuid
+	templateAnnotations[annoType] = "script"
+	templateAnnotations[annoUuid] = s.uuid
 
 	defaultMode := int32(0777)
 	ttl := int32(10)
 
+	generateName := genName
+	if template.ObjectMeta.GenerateName != "" {
+		generateName = template.ObjectMeta.GenerateName
+	}
+
+	volumes := append(
+		template.Spec.Template.Spec.Volumes,
+		v1.Volume{
+			Name: volName,
+			VolumeSource: v1.VolumeSource{
+				ConfigMap: &v1.ConfigMapVolumeSource{
+					DefaultMode: &defaultMode,
+					LocalObjectReference: v1.LocalObjectReference{
+						Name: fmt.Sprintf(cmNameFmt, s.uuid),
+					},
+				},
+			},
+		},
+	)
+	volumeMounts := append(
+		template.Spec.Template.Spec.Containers[0].VolumeMounts,
+		v1.VolumeMount{
+			Name:      mountName,
+			MountPath: mountPath,
+		},
+	)
+
 	job := batchv1.Job{
 		ObjectMeta: metav1.ObjectMeta{
-			Namespace: *s.flags.Namespace,
-			GenerateName: utils.IfThenElse(
-				template.ObjectMeta.GenerateName != "",
-				template.ObjectMeta.GenerateName,
-				"ktool-script-").(string),
-			Labels:      templateLabels,
-			Annotations: templateAnnotations,
+			Namespace:    *s.flags.Namespace,
+			GenerateName: generateName,
+			Labels:       templateLabels,
+			Annotations:  templateAnnotations,
 		},
 		TypeMeta: metav1.TypeMeta{
-			Kind:       "Job",
-			APIVersion: "batch/v1",
+			Kind:       jobType,
+			APIVersion: jobApiVersion,
 		},
 		Spec: batchv1.JobSpec{
 			TTLSecondsAfterFinished: &ttl,
@@ -135,33 +186,17 @@ func (s *ScriptCommand) createJobManifest() *batchv1.Job {
 				Spec: v1.PodSpec{
 					Containers: []v1.Container{
 						{
-							Name:            "ktool-script",
+							Name:            containerName,
 							Image:           *s.flags.Image,
 							ImagePullPolicy: v1.PullAlways,
-							Command:         append(utils.ArgsToList((*s.flags.Shell)), fmt.Sprintf("/ktool/script%s", path.Ext(*s.flags.Script))),
-							Args:            utils.ArgsToList(*s.flags.Args),
-							VolumeMounts: append(template.Spec.Template.Spec.Containers[0].VolumeMounts, v1.VolumeMount{
-								Name:      "ktool-scripts",
-								MountPath: "/ktool",
-							}),
-							Env: template.Spec.Template.Spec.Containers[0].Env,
+							Command:         append(string_utils.ArgsToList((*s.flags.Shell)), fmt.Sprintf(cmdFmt, path.Ext(*s.flags.Script))),
+							Args:            string_utils.ArgsToList(*s.flags.Args),
+							VolumeMounts:    volumeMounts,
+							Env:             template.Spec.Template.Spec.Containers[0].Env,
 						},
 					},
 					RestartPolicy: v1.RestartPolicyNever,
-					Volumes: append(
-						template.Spec.Template.Spec.Volumes,
-						v1.Volume{
-							Name: "ktool-scripts",
-							VolumeSource: v1.VolumeSource{
-								ConfigMap: &v1.ConfigMapVolumeSource{
-									DefaultMode: &defaultMode,
-									LocalObjectReference: v1.LocalObjectReference{
-										Name: fmt.Sprintf("ktool-script-%s", s.uuid),
-									},
-								},
-							},
-						},
-					),
+					Volumes:       volumes,
 				},
 			},
 		},
@@ -195,10 +230,10 @@ func (s *ScriptCommand) createJob() error {
 // Deletes the Job from the cluster
 func (s *ScriptCommand) deleteJob() error {
 	delPol := metav1.DeletePropagationBackground
-	err := s.kClient.BatchV1().Jobs(*s.flags.Namespace).Delete(s.context, s.job.Name, metav1.DeleteOptions{
+	delOptions := metav1.DeleteOptions{
 		PropagationPolicy: &delPol,
-	})
-	if err != nil {
+	}
+	if err := s.kClient.BatchV1().Jobs(*s.flags.Namespace).Delete(s.context, s.job.Name, delOptions); err != nil {
 		s.logger.Error("error while deleting job, %v", err)
 		return err
 	}
@@ -213,15 +248,15 @@ func (s *ScriptCommand) createConfigMapManifest() *v1.ConfigMap {
 	script := s.loadScript()
 	cnf := &v1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("ktool-script-%s", s.uuid),
+			Name:      fmt.Sprintf(cmNameFmt, s.uuid),
 			Namespace: *s.flags.Namespace,
 		},
 		TypeMeta: metav1.TypeMeta{
-			Kind:       "ConfigMap",
-			APIVersion: "v1",
+			Kind:       configMapType,
+			APIVersion: configMapApiVersion,
 		},
 		Data: map[string]string{
-			fmt.Sprintf("script%s", path.Ext(*s.flags.Script)): script,
+			fmt.Sprintf(cmDataKeyFmt, path.Ext(*s.flags.Script)): script,
 		},
 	}
 	return cnf
@@ -242,8 +277,7 @@ func (s *ScriptCommand) createConfigMap() error {
 
 // Deletes the ConfigMap from the cluster
 func (s *ScriptCommand) deleteConfigMap() {
-	err := s.kClient.CoreV1().ConfigMaps(*s.flags.Namespace).Delete(s.context, s.configMap.Name, metav1.DeleteOptions{})
-	if err != nil {
+	if err := s.kClient.CoreV1().ConfigMaps(*s.flags.Namespace).Delete(s.context, s.configMap.Name, metav1.DeleteOptions{}); err != nil {
 		s.logger.Error("error while deleting configmap, %v", err)
 		panic(err)
 	}
@@ -252,8 +286,8 @@ func (s *ScriptCommand) deleteConfigMap() {
 }
 
 // Gets the pod related to the Job created
-func (s *ScriptCommand) getJobPod() (*v1.Pod, error) {
-	labelSelector := fmt.Sprintf("job-name=%s", s.job.Name)
+func (s *ScriptCommand) jobPod() (*v1.Pod, error) {
+	labelSelector := fmt.Sprintf(labelSelectorFmt, s.job.Name)
 	pods, err := s.kClient.CoreV1().Pods(*s.flags.Namespace).List(s.context, metav1.ListOptions{
 		LabelSelector: labelSelector,
 		Limit:         1,
@@ -277,7 +311,7 @@ func (s *ScriptCommand) getJobPod() (*v1.Pod, error) {
 }
 
 // Gets a Pod by its name
-func (s *ScriptCommand) getPodByName(name string) (*v1.Pod, error) {
+func (s *ScriptCommand) podByName(name string) (*v1.Pod, error) {
 	pod, err := s.kClient.CoreV1().Pods(*s.flags.Namespace).Get(s.context, name, metav1.GetOptions{})
 	if err != nil {
 		s.logger.Error("error getting pod %s, %v", name, err)
@@ -291,7 +325,7 @@ func (s *ScriptCommand) getPodByName(name string) (*v1.Pod, error) {
 func (s *ScriptCommand) monitorPod(done chan bool, name string) {
 	l := logger.Log{}.New(name)
 	for {
-		monitorPod, err := s.getPodByName(name)
+		monitorPod, err := s.podByName(name)
 		if err != nil {
 			l.Error("error while monitoring the pod, %v", err)
 			break
@@ -312,7 +346,7 @@ func (s *ScriptCommand) streamPodLogs(done chan bool, name string) {
 	l := logger.Log{}.New(name)
 	req := s.kClient.CoreV1().Pods(*s.flags.Namespace).GetLogs(name, &v1.PodLogOptions{
 		Follow:    true,
-		Container: "ktool-script",
+		Container: containerName,
 	})
 	stream, err := req.Stream(context.Background())
 	if err != nil {
@@ -344,7 +378,7 @@ func (s *ScriptCommand) waitForPodToStart(done chan bool, pod *v1.Pod) {
 	l.Info("waiting for pod %s to be running", pod.Name)
 loop:
 	for {
-		pod, err := s.getPodByName(pod.Name)
+		pod, err := s.podByName(pod.Name)
 		switch pod.Status.Phase {
 		case v1.PodPending, v1.PodUnknown:
 			continue loop
@@ -373,7 +407,7 @@ func (s *ScriptCommand) run() {
 	}
 	defer s.deleteJob()
 
-	pod, err := s.getJobPod()
+	pod, err := s.jobPod()
 	if err != nil {
 		panic(err)
 	}

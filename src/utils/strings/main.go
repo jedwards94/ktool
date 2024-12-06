@@ -1,22 +1,8 @@
-package utils
+package string_utils
 
 import (
-	"os/user"
 	"regexp"
-	"strings"
 )
-
-func ExpandUser(path string) (string, error) {
-	if strings.HasPrefix(path, "~") {
-		usr, err := user.Current()
-		if err != nil {
-			return "", err
-		}
-		expandedPath := strings.Replace(path, "~", usr.HomeDir, 1)
-		return expandedPath, nil
-	}
-	return path, nil
-}
 
 // Kind of a ternary, if condition is met, return a else return b
 func IfThenElse(condition bool, a interface{}, b interface{}) interface{} {
