@@ -7,6 +7,7 @@ import (
 	"ktool/src/logger"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -35,7 +36,8 @@ func main() {
 	versionCmd.Usage = func() {
 		fmt.Printf("version: %s\n", Version)
 		fmt.Printf("commit: %s\n", Commit)
-		fmt.Printf("vuild time: %s\n", BuildTime)
+		fmt.Printf("build time: %s\n", BuildTime)
+		fmt.Printf("platform: %s\n", fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH))
 		versionCmd.PrintDefaults()
 	}
 	scriptCmd := flag.NewFlagSet("script", flag.ExitOnError)
