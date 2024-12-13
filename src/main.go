@@ -107,20 +107,23 @@ func main() {
 		scriptCmd.Parse(args[1:])
 		if pass := checkRequired([]string{"-file", "-image"}, args[1:]); !pass {
 			scriptCmd.Usage()
-			os.Exit(1)
+			panic(1)
 		}
-		cmd := commands.ScriptCommand{}.NewWithFlags(*clientset, log, commands.ScriptFlags{
-			JobTemplate: scriptJobTemplateFile,
+		cmd := commands.ScriptCommand{}.NewWithFlags(clientset, log, commands.ScriptFlags{
+			JobTemplate: *scriptJobTemplateFile,
 			Attach:      *scriptAttach,
 			DryRun:      *scriptDryRun,
-			Image:       scriptBaseImage,
-			Shell:       scriptShell,
-			Script:      scriptFile,
-			Args:        scriptArgs,
-			Namespace:   scriptNamespace,
+			Image:       *scriptBaseImage,
+			Shell:       *scriptShell,
+			Script:      *scriptFile,
+			Args:        *scriptArgs,
+			Namespace:   *scriptNamespace,
 		})
 
-		cmd.Exec()
+		if err := cmd.Exec(); err != nil {
+			mainLog.Fatal("fatal error, %v", err)
+			panic(err)
+		}
 
 	}
 

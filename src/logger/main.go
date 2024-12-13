@@ -41,6 +41,7 @@ const (
 	Warning LogLevel = iota
 	Error   LogLevel = iota
 	Fatal   LogLevel = iota
+	Off     LogLevel = iota
 )
 
 var (
@@ -50,6 +51,7 @@ var (
 		"warning": Warning,
 		"error":   Error,
 		"fatal":   Fatal,
+		"off":     Off,
 	}
 	logColorMap = map[LogLevel]Color{
 		Debug:   cyan,
