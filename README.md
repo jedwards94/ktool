@@ -133,3 +133,6 @@ ktool script \
 [script][inf]  deleted job ktool-script-p47n2 on namespace default
 [script][inf]  deleted configmap ktool-script-4b74f on namespace default
 ```
+
+## TODO
+implement test and refactor acordingly

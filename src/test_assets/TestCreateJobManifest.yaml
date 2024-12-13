@@ -1,0 +1,43 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  namespace: non-test
+  generateName: test-
+  labels:
+    app: test
+spec:
+  template:
+    metadata:
+      name: test
+      labels:
+        app: test
+      annotations:
+        example: "test"
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: disktype
+                    operator: In
+                    values:
+                      - ssd
+      containers:
+      - name: "busybox"
+        image: busybox
+        command: ['sh', '-c', 'echo "hello world"']
+        env:
+        - name: ENV_NAME
+          value: ENV_VALUE
+        
+        volumeMounts:
+        - name: test
+          mountPath: /test
+
+      volumes:
+      - name: test
+        hostPath:
+          path: /test
+      restartPolicy: OnFailure
+      dnsPolicy: ClusterFirst

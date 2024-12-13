@@ -48,3 +48,9 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
+
+require (
+	github.com/go-test/deep v1.1.1 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
+)

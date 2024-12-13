@@ -1,0 +1,58 @@
+kind: Job
+apiVersion: batch/v1
+metadata:
+  namespace: test
+  generateName: test-
+  labels:
+    app: test
+    ktool-app: "true"
+    script-extension: py
+  annotations:
+    app.ktool.io/short-uuid: "1"
+    app.ktool.io/type: script
+spec:
+  template:
+    metadata:
+      name: test
+      annotations:
+        example: test
+      labels:
+        app: test
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: disktype
+                operator: In
+                values:
+                - ssd
+      containers:
+      - command:
+        - python
+        - /ktool/script.py
+        env:
+        - name: ENV_NAME
+          value: ENV_VALUE
+        image: python
+        imagePullPolicy: Always
+        name: ktool-script
+        resources: {}
+        volumeMounts:
+        - mountPath: /test
+          name: test
+        - mountPath: /ktool
+          name: ktool-scripts
+      dnsPolicy: ClusterFirst
+      restartPolicy: Never
+      volumes:
+      - hostPath:
+          path: /test
+        name: test
+      - configMap:
+          defaultMode: 511
+          name: ktool-script-1
+        name: ktool-scripts
+  ttlSecondsAfterFinished: 10
+status: {}

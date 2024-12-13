@@ -1,0 +1,5 @@
+apiVersion: batch/v1
+kind: Job
+{
+this: is not a yaml
+}
