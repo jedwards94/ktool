@@ -19,6 +19,7 @@ spec:
       labels:
         app: test
     spec:
+      terminationGracePeriodSeconds: 1
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:

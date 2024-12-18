@@ -9,8 +9,10 @@ import (
 	path_utils "ktool/src/utils/path"
 	string_utils "ktool/src/utils/strings"
 	"os"
+	"os/signal"
 	"path"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -160,6 +162,7 @@ func (s *ScriptCommand) createJobManifest() (*batchv1.Job, error) {
 
 	defaultMode := int32(0777)
 	ttl := int32(10)
+	gracePeriod := int64(1)
 
 	generateName := genName
 	if template.ObjectMeta.GenerateName != "" {
@@ -234,6 +237,10 @@ func (s *ScriptCommand) createJobManifest() (*batchv1.Job, error) {
 		s.logger.Debug("setting ttl to %d", ttl)
 		template.Spec.TTLSecondsAfterFinished = &ttl
 	}
+	if template.Spec.Template.Spec.TerminationGracePeriodSeconds == nil {
+		s.logger.Debug("setting termination grace period to %d", gracePeriod)
+		template.Spec.Template.Spec.TerminationGracePeriodSeconds = &gracePeriod
+	}
 
 	s.logger.Debug("pod volumes %#v", job.Spec.Template.Spec.Volumes)
 	template.Spec.Template.Spec.Volumes = job.Spec.Template.Spec.Volumes
@@ -267,7 +274,10 @@ func (s *ScriptCommand) createJob() error {
 
 // Deletes the Job from the cluster
 func (s *ScriptCommand) deleteJob() error {
-	delPol := metav1.DeletePropagationBackground
+	if s.job == nil {
+		return nil
+	}
+	delPol := metav1.DeletePropagationForeground
 	delOptions := metav1.DeleteOptions{
 		PropagationPolicy: &delPol,
 	}
@@ -321,7 +331,15 @@ func (s *ScriptCommand) createConfigMap() error {
 
 // Deletes the ConfigMap from the cluster
 func (s *ScriptCommand) deleteConfigMap() error {
-	if err := s.kClient.CoreV1().ConfigMaps(s.flags.Namespace).Delete(s.context, s.configMap.Name, metav1.DeleteOptions{}); err != nil {
+	if s.configMap == nil {
+		return nil
+	}
+	delPol := metav1.DeletePropagationBackground
+	gracePeriod := int64(1)
+	if err := s.kClient.CoreV1().ConfigMaps(s.flags.Namespace).Delete(s.context, s.configMap.Name, metav1.DeleteOptions{
+		PropagationPolicy:  &delPol,
+		GracePeriodSeconds: &gracePeriod,
+	}); err != nil {
 		return err
 	}
 	s.logger.Debug("deleted configmap %s on namespace %s", s.configMap.Name, s.configMap.Namespace)
@@ -393,7 +411,10 @@ func (s *ScriptCommand) watchPod(done chan error, name string) {
 }
 
 // Streams the logs of a named pod to stdout and return the number of lines readed and the error
-func (s *ScriptCommand) streamPodLogs(name string) (int, error) {
+func (s *ScriptCommand) streamPodLogs(log chan struct {
+	count int
+	err   error
+}, name string) {
 	l := s.logger.New(name)
 	linesOfLog := 0
 	req := s.kClient.CoreV1().Pods(s.flags.Namespace).GetLogs(name, &v1.PodLogOptions{
@@ -403,7 +424,10 @@ func (s *ScriptCommand) streamPodLogs(name string) (int, error) {
 	stream, err := req.Stream(s.context)
 	if err != nil {
 		l.Error("error while staring log stream, %v", err)
-		return linesOfLog, err
+		log <- struct {
+			count int
+			err   error
+		}{linesOfLog, err}
 	}
 	defer stream.Close()
 	buf := make([]byte, 1024)
@@ -416,12 +440,18 @@ func (s *ScriptCommand) streamPodLogs(name string) (int, error) {
 		}
 		if err != nil {
 			l.Error("error reading log stream: %v", err)
-			return linesOfLog, err
+			log <- struct {
+				count int
+				err   error
+			}{linesOfLog, err}
 		}
 		l.Log(string(buf[:n]))
 		linesOfLog++
 	}
-	return linesOfLog, nil
+	log <- struct {
+		count int
+		err   error
+	}{linesOfLog, nil}
 }
 
 // Waits for a given pod poitner to be in Running Phase
@@ -475,6 +505,25 @@ loop:
 	return nil
 }
 
+// Go routine that deletes the job and configmap when a SIGINT or SIGTERM are received
+func (s *ScriptCommand) interruptClenaup() {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	doneChan := make(chan os.Signal, 1)
+
+	go func() {
+		sig := <-sigChan
+		s.logger.Info("%s received, cleaning up", sig.String())
+		s.deleteConfigMap()
+		s.deleteJob()
+		doneChan <- sig
+	}()
+
+	<-doneChan
+	s.logger.Info("cleanup ready, goodbye!")
+}
+
 // Runs the command. This creates the ConfigMap and the Job in the cluster, wait for the Job to have a
 // Running Pod and start streaming it's logs (if attach flag is true) while monitor its status
 func (s *ScriptCommand) run() error {
@@ -493,6 +542,8 @@ func (s *ScriptCommand) run() error {
 		return err
 	}
 
+	go s.interruptClenaup()
+
 	if err := s.waitForPodToStart(pod); err != nil {
 		return err
 	}
@@ -502,14 +553,29 @@ func (s *ScriptCommand) run() error {
 	go s.watchPod(watcher, pod.Name)
 
 	if s.flags.Attach {
-		if _, err := s.streamPodLogs(pod.Name); err != nil {
+		logChan := make(chan struct {
+			count int
+			err   error
+		})
+		defer close(logChan)
+		go s.streamPodLogs(logChan, pod.Name)
+		select {
+		case err := <-watcher:
+			if err != nil {
+				return err
+			}
+		case res := <-logChan:
+			if res.err != nil {
+				return res.err
+			}
+		}
+
+	} else {
+		if err := <-watcher; err != nil {
 			return err
 		}
 	}
 
-	if err := <-watcher; err != nil {
-		return err
-	}
 	return nil
 }
 

@@ -633,12 +633,19 @@ func TestStreamLog(t *testing.T) {
 
 	cmd.waitForPodToStart(pod)
 
-	result, err := cmd.streamPodLogs(pod.Name)
-	require.NoError(t, err)
+	logChan := make(chan struct {
+		count int
+		err   error
+	})
+	defer close(logChan)
+	go cmd.streamPodLogs(logChan, pod.Name)
+
+	res := <-logChan
+	require.NoError(t, res.err)
 	expected := 3
 
-	if result != expected {
-		t.Errorf("expected %d log read but got: %d", expected, result)
+	if res.count != expected {
+		t.Errorf("expected %d log read but got: %d", expected, res.count)
 	}
 
 }

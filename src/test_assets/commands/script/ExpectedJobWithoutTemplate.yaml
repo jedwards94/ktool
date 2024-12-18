@@ -11,8 +11,8 @@ metadata:
   namespace: test
 spec:
   template:
-    metadata:
     spec:
+      terminationGracePeriodSeconds: 1
       containers:
       - command:
         - bin/sh
