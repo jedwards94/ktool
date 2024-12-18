@@ -25,6 +25,7 @@ make install-docker
 Run a local script loaded in a ConfigMap in a Job
 ### Flags
 
+
   * `-args string`
     * (optional) the args to pass to the script file
     * example: `-args '-foo oof -bar rab -baz "some text"'`
@@ -38,6 +39,13 @@ Run a local script loaded in a ConfigMap in a Job
   * `-image string`
     * (required) the image where the script will be runned
     * example: `-image python:3.10`
+  * `-init-timeout-seconds uint`
+    * (optional) the time in seconds to wait until the job is running (default 300)
+    * example: `-init-timeout-seconds 120`
+  * `-keep-on-sig`
+    * (optional) don't terminate job or delete config if command receive a SIGINT or SIGTERM
+  * `-keep-resources`
+    * (optional) don't delete job and config
   * `-namespace string`
     * (optional) the namespace where to run the script (default "default")
   * `-shell string`
@@ -53,31 +61,33 @@ ktool script \
     -dry-run \
     -image python:3 \
     -shell python \
-    -file ./examples/example.py
+    -template ./examples/example.yaml \
+    -file ./examples/example.py 
 ```
 will produce the following output:
 ```yaml
 kind: Job
 apiVersion: batch/v1
 metadata:
-  namespace: default
-  generateName: ktool-script-
   annotations:
-    app.ktool.io/short-uuid: e4d80
+    app.ktool.io/short-uuid: "383e2"
     app.ktool.io/type: script
   creationTimestamp: null
+  generateName: ktool-script-
   labels:
     ktool-app: "true"
     script-extension: py
+  namespace: default
 spec:
   template:
-    metadata:
-      creationTimestamp: null
     spec:
       containers:
       - command:
         - python
         - /ktool/script.py
+        env:
+        - name: PYTHONUNBUFFERED
+          value: "1"
         image: python:3
         imagePullPolicy: Always
         name: ktool-script
@@ -86,10 +96,11 @@ spec:
         - mountPath: /ktool
           name: ktool-scripts
       restartPolicy: Never
+      terminationGracePeriodSeconds: 1
       volumes:
       - configMap:
           defaultMode: 511
-          name: ktool-script-e4d80
+          name: ktool-script-383e2
         name: ktool-scripts
   ttlSecondsAfterFinished: 10
 status: {}
@@ -98,41 +109,45 @@ status: {}
 kind: ConfigMap
 apiVersion: v1
 metadata:
-  creationTimestamp: null
-  name: ktool-script-e4d80
+  name: ktool-script-383e2
   namespace: default
 data:
-  script.py: |
+  script.py: |-
     import time
-    print("hello world")
-    time.sleep(10)
-    print("something more")
-    time.sleep(3)
-    print("goodbye!")
+
+
+    numbers = [10, 20, 30, 40, 50]
+
+    for num in numbers:
+        print(f"Number: {num}")
+        time.sleep(20)
 ```
 removing the flag `-dry-run` and adding the `-attach` will produce the following console ouput
 
 ```sh
 ❯
-ktool script \
+❯ ktool script \
     -attach \
     -image python:3 \
     -shell python \
+    -template ./examples/example.yaml \
     -file ./examples/example.py
-[script][inf]  created configmap ktool-script-4b74f on namespace default
-[script][inf]  created job ktool-script-p47n2 on namespace default
-[ktool-script-p47n2-m47pc][inf]  waiting for pod ktool-script-p47n2-m47pc to be running
-[ktool-script-p47n2-m47pc][inf]  pod ktool-script-p47n2-m47pc is running!
-[ktool-script-p47n2-m47pc][inf]  starting log stream for pod ktool-script-p47n2-m47pc on container ktool-script
-[ktool-script-p47n2-m47pc][log]  hello world
-[ktool-script-p47n2-m47pc][log]  something more
-[ktool-script-p47n2-m47pc][log]  goodbye!
-[ktool-script-p47n2-m47pc][inf]  exit code: 0
-[ktool-script-p47n2-m47pc][inf]  reason: Completed
-[ktool-script-p47n2-m47pc][inf]  logs ended!
-[script][inf]  deleted job ktool-script-p47n2 on namespace default
-[script][inf]  deleted configmap ktool-script-4b74f on namespace default
+[ktool-script-jpdx2-pnsph][inf]  pod ktool-script-jpdx2-pnsph is running!
+[ktool-script-jpdx2-pnsph][inf]  starting log stream for pod ktool-script-jpdx2-pnsph on container ktool-script
+[ktool-script-jpdx2-pnsph][log]  Number: 10
+
+[ktool-script-jpdx2-pnsph][log]  Number: 20
+
+[ktool-script-jpdx2-pnsph][log]  Number: 30
+
+[ktool-script-jpdx2-pnsph][log]  Number: 40
+
+[ktool-script-jpdx2-pnsph][log]  Number: 50
+
+[ktool-script-jpdx2-pnsph][inf]  exit code: 0
+[ktool-script-jpdx2-pnsph][inf]  reason: Completed
+[ktool-script-jpdx2-pnsph][inf]  message: 
 ```
 
 ## TODO
-implement test and refactor acordingly
+implement new dev-pod command
