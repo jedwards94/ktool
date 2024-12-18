@@ -79,13 +79,14 @@ func TestScriptComandInstance(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 
 	cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-		Image:       testImage,
-		Shell:       testShell,
-		Script:      successTestScript,
-		Args:        "",
-		JobTemplate: "",
-		Attach:      false,
-		DryRun:      false,
+		Image:              testImage,
+		Shell:              testShell,
+		Script:             successTestScript,
+		Args:               "",
+		JobTemplate:        "",
+		Attach:             false,
+		DryRun:             false,
+		InitTimeoutSeconds: 300,
 	})
 
 	emptyFlagSet := ScriptFlags{}
@@ -116,13 +117,14 @@ func TestLoadEmptyTemplate(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 
 	cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-		Image:       testImage,
-		Shell:       testShell,
-		Script:      successTestScript,
-		Args:        "",
-		JobTemplate: "",
-		Attach:      false,
-		DryRun:      false,
+		Image:              testImage,
+		Shell:              testShell,
+		Script:             successTestScript,
+		Args:               "",
+		JobTemplate:        "",
+		Attach:             false,
+		DryRun:             false,
+		InitTimeoutSeconds: 300,
 	})
 
 	template, err := cmd.loadTemplate()
@@ -150,13 +152,14 @@ func TestLoadTemplate(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	t.Run("load valid template", func(t *testing.T) {
 		cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-			Image:       testImage,
-			Shell:       testShell,
-			Script:      successTestScript,
-			Args:        "",
-			JobTemplate: "../test_assets/commands/script/TestLoadTemplate.yaml",
-			Attach:      false,
-			DryRun:      false,
+			Image:              testImage,
+			Shell:              testShell,
+			Script:             successTestScript,
+			Args:               "",
+			JobTemplate:        "../test_assets/commands/script/TestLoadTemplate.yaml",
+			Attach:             false,
+			DryRun:             false,
+			InitTimeoutSeconds: 300,
 		})
 
 		template, err := cmd.loadTemplate()
@@ -172,13 +175,14 @@ func TestLoadTemplate(t *testing.T) {
 
 	t.Run("with invalid path", func(t *testing.T) {
 		cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-			Image:       testImage,
-			Shell:       testShell,
-			Script:      successTestScript,
-			Args:        "",
-			JobTemplate: "invalidPath",
-			Attach:      false,
-			DryRun:      false,
+			Image:              testImage,
+			Shell:              testShell,
+			Script:             successTestScript,
+			Args:               "",
+			JobTemplate:        "invalidPath",
+			Attach:             false,
+			DryRun:             false,
+			InitTimeoutSeconds: 300,
 		})
 
 		_, err := cmd.loadTemplate()
@@ -189,13 +193,14 @@ func TestLoadTemplate(t *testing.T) {
 
 	t.Run("with invalid yaml", func(t *testing.T) {
 		cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-			Image:       testImage,
-			Shell:       testShell,
-			Script:      successTestScript,
-			Args:        "",
-			JobTemplate: "../test_assets/commands/script/TestLoadTemplateInvalidYAML.yaml",
-			Attach:      false,
-			DryRun:      false,
+			Image:              testImage,
+			Shell:              testShell,
+			Script:             successTestScript,
+			Args:               "",
+			JobTemplate:        "../test_assets/commands/script/TestLoadTemplateInvalidYAML.yaml",
+			Attach:             false,
+			DryRun:             false,
+			InitTimeoutSeconds: 300,
 		})
 
 		_, err := cmd.loadTemplate()
@@ -211,13 +216,14 @@ func TestLoadScript(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	t.Run("with valid script", func(t *testing.T) {
 		cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-			Image:       testImage,
-			Shell:       testShell,
-			Script:      successTestScript,
-			Args:        "",
-			JobTemplate: testJobTmpl,
-			Attach:      false,
-			DryRun:      false,
+			Image:              testImage,
+			Shell:              testShell,
+			Script:             successTestScript,
+			Args:               "",
+			JobTemplate:        testJobTmpl,
+			Attach:             false,
+			DryRun:             false,
+			InitTimeoutSeconds: 300,
 		})
 
 		result, err := cmd.loadScript()
@@ -237,13 +243,14 @@ echo "test 3"
 
 	t.Run("with invalid path", func(t *testing.T) {
 		cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-			Image:       testImage,
-			Shell:       testShell,
-			Script:      "invalidPath",
-			Args:        "",
-			JobTemplate: testJobTmpl,
-			Attach:      false,
-			DryRun:      false,
+			Image:              testImage,
+			Shell:              testShell,
+			Script:             "invalidPath",
+			Args:               "",
+			JobTemplate:        testJobTmpl,
+			Attach:             false,
+			DryRun:             false,
+			InitTimeoutSeconds: 300,
 		})
 
 		_, err := cmd.loadScript()
@@ -259,14 +266,15 @@ func TestCreateJobManifest(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	t.Run("with template", func(t *testing.T) {
 		cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-			Image:       testImage,
-			Shell:       testShell,
-			Script:      successTestScript,
-			Args:        "",
-			JobTemplate: "../test_assets/commands/script/TestCreateJobManifest.yaml",
-			Attach:      false,
-			DryRun:      false,
-			Namespace:   "test",
+			Image:              testImage,
+			Shell:              testShell,
+			Script:             successTestScript,
+			Args:               "",
+			JobTemplate:        "../test_assets/commands/script/TestCreateJobManifest.yaml",
+			Attach:             false,
+			DryRun:             false,
+			Namespace:          "test",
+			InitTimeoutSeconds: 300,
 		})
 
 		cmd.uuid = "1"
@@ -283,14 +291,15 @@ func TestCreateJobManifest(t *testing.T) {
 
 	t.Run("without template", func(t *testing.T) {
 		cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-			Image:       testImage,
-			Shell:       testShell,
-			Script:      successTestScript,
-			Args:        "",
-			JobTemplate: "",
-			Attach:      false,
-			DryRun:      false,
-			Namespace:   "test",
+			Image:              testImage,
+			Shell:              testShell,
+			Script:             successTestScript,
+			Args:               "",
+			JobTemplate:        "",
+			Attach:             false,
+			DryRun:             false,
+			Namespace:          "test",
+			InitTimeoutSeconds: 300,
 		})
 
 		cmd.uuid = "1"
@@ -311,14 +320,15 @@ func TestCreateJobManifest(t *testing.T) {
 func TestCreateJob(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-		Image:       testImage,
-		Shell:       testShell,
-		Script:      successTestScript,
-		Args:        "",
-		JobTemplate: "",
-		Attach:      false,
-		DryRun:      false,
-		Namespace:   "test",
+		Image:              testImage,
+		Shell:              testShell,
+		Script:             successTestScript,
+		Args:               "",
+		JobTemplate:        "",
+		Attach:             false,
+		DryRun:             false,
+		Namespace:          "test",
+		InitTimeoutSeconds: 300,
 	})
 
 	cmd.uuid = "1"
@@ -349,14 +359,15 @@ func TestDeleteJob(t *testing.T) {
 		},
 	})
 	cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-		Image:       testImage,
-		Shell:       testShell,
-		Script:      successTestScript,
-		Args:        "",
-		JobTemplate: "",
-		Attach:      false,
-		DryRun:      false,
-		Namespace:   "test",
+		Image:              testImage,
+		Shell:              testShell,
+		Script:             successTestScript,
+		Args:               "",
+		JobTemplate:        "",
+		Attach:             false,
+		DryRun:             false,
+		Namespace:          "test",
+		InitTimeoutSeconds: 300,
 	})
 
 	cmd.uuid = "1"
@@ -381,14 +392,15 @@ func TestDeleteJob(t *testing.T) {
 func TestCreateConfigMapManifest(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-		Image:       testImage,
-		Shell:       testShell,
-		Script:      successTestScript,
-		Args:        "",
-		JobTemplate: "",
-		Attach:      false,
-		DryRun:      false,
-		Namespace:   "test",
+		Image:              testImage,
+		Shell:              testShell,
+		Script:             successTestScript,
+		Args:               "",
+		JobTemplate:        "",
+		Attach:             false,
+		DryRun:             false,
+		Namespace:          "test",
+		InitTimeoutSeconds: 300,
 	})
 
 	cmd.uuid = "1"
@@ -408,14 +420,15 @@ func TestWatchPod(t *testing.T) {
 	clientset := initK3S(t, testImage)
 	t.Run("when the pod complete succesfully", func(t *testing.T) {
 		cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-			Image:       testImage,
-			Shell:       testShell,
-			Script:      successTestScript,
-			Args:        "",
-			JobTemplate: "",
-			Attach:      false,
-			DryRun:      false,
-			Namespace:   "default",
+			Image:              testImage,
+			Shell:              testShell,
+			Script:             successTestScript,
+			Args:               "",
+			JobTemplate:        "",
+			Attach:             false,
+			DryRun:             false,
+			Namespace:          "default",
+			InitTimeoutSeconds: 300,
 		})
 
 		err := cmd.createConfigMap()
@@ -440,14 +453,15 @@ func TestWatchPod(t *testing.T) {
 
 	t.Run("when the pod dies unexpectedly", func(t *testing.T) {
 		cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-			Image:       testImage,
-			Shell:       testShell,
-			Script:      successTestScript,
-			Args:        "",
-			JobTemplate: "",
-			Attach:      false,
-			DryRun:      false,
-			Namespace:   "default",
+			Image:              testImage,
+			Shell:              testShell,
+			Script:             successTestScript,
+			Args:               "",
+			JobTemplate:        "",
+			Attach:             false,
+			DryRun:             false,
+			Namespace:          "default",
+			InitTimeoutSeconds: 300,
 		})
 
 		err := cmd.createConfigMap()
@@ -517,17 +531,16 @@ func TestWaitForPodToStart(t *testing.T) {
 	clientset := initK3S(t, testImage)
 	t.Run("with exceeded deadline", func(t *testing.T) {
 		cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-			Image:       testImage,
-			Shell:       testShell,
-			Script:      successTestScript,
-			Args:        "",
-			JobTemplate: "",
-			Attach:      false,
-			DryRun:      false,
-			Namespace:   "default",
+			Image:              testImage,
+			Shell:              testShell,
+			Script:             successTestScript,
+			Args:               "",
+			JobTemplate:        "",
+			Attach:             false,
+			DryRun:             false,
+			Namespace:          "default",
+			InitTimeoutSeconds: 5,
 		})
-
-		cmd.initTimeoutSeconds = 5
 
 		err := cmd.createJob()
 		require.NoError(t, err)
@@ -537,25 +550,22 @@ func TestWaitForPodToStart(t *testing.T) {
 		require.NoError(t, err)
 
 		err = cmd.waitForPodToStart(pod)
-		if err != context.DeadlineExceeded {
-			t.Errorf("should return timeout but got %v", err)
-		}
+		require.ErrorContains(t, err, "timeout")
 
 	})
 
 	t.Run("with failed status", func(t *testing.T) {
 		cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-			Image:       testImage,
-			Shell:       "invalidShell",
-			Script:      failTestScript,
-			Args:        "",
-			JobTemplate: "",
-			Attach:      false,
-			DryRun:      false,
-			Namespace:   "default",
+			Image:              testImage,
+			Shell:              "invalidShell",
+			Script:             failTestScript,
+			Args:               "",
+			JobTemplate:        "",
+			Attach:             false,
+			DryRun:             false,
+			Namespace:          "default",
+			InitTimeoutSeconds: 30,
 		})
-
-		cmd.initTimeoutSeconds = 120
 
 		err := cmd.createConfigMap()
 		require.NoError(t, err)
@@ -575,14 +585,15 @@ func TestWaitForPodToStart(t *testing.T) {
 
 	t.Run("with normal life cycle", func(t *testing.T) {
 		cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-			Image:       testImage,
-			Shell:       testShell,
-			Script:      successTestScript,
-			Args:        "",
-			JobTemplate: "",
-			Attach:      false,
-			DryRun:      false,
-			Namespace:   "default",
+			Image:              testImage,
+			Shell:              testShell,
+			Script:             successTestScript,
+			Args:               "",
+			JobTemplate:        "",
+			Attach:             false,
+			DryRun:             false,
+			Namespace:          "default",
+			InitTimeoutSeconds: 300,
 		})
 
 		err := cmd.createConfigMap()
@@ -605,14 +616,15 @@ func TestWaitForPodToStart(t *testing.T) {
 func TestStreamLog(t *testing.T) {
 	clientset := initK3S(t, testImage)
 	cmd := ScriptCommand{}.NewWithFlags(clientset, log, ScriptFlags{
-		Image:       testImage,
-		Shell:       testShell,
-		Script:      successTestScript,
-		Args:        "",
-		JobTemplate: "",
-		Attach:      false,
-		DryRun:      false,
-		Namespace:   "default",
+		Image:              testImage,
+		Shell:              testShell,
+		Script:             successTestScript,
+		Args:               "",
+		JobTemplate:        "",
+		Attach:             false,
+		DryRun:             false,
+		Namespace:          "default",
+		InitTimeoutSeconds: 300,
 	})
 
 	err := cmd.createConfigMap()

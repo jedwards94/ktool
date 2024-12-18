@@ -83,6 +83,9 @@ func main() {
 	scriptNamespace := scriptCmd.String("namespace", "default", "(optional) the namespace where to run the script")
 	scriptAttach := scriptCmd.Bool("attach", false, "(optional) follow logs")
 	scriptDryRun := scriptCmd.Bool("dry-run", false, "(optional) print the kubernetes manifests but doesn't run anything")
+	scriptInitTimeoutSeconds := scriptCmd.Uint("init-timeout-seconds", 300, "(optional) the time in seconds to wait until the job is running")
+	scriptKeepResources := scriptCmd.Bool("keep-resources", false, "(optional) don't delete job and config")
+	scriptKeepOnSig := scriptCmd.Bool("keep-on-sig", false, "(optional) don't terminate job or delete config if command receive a SIGINT or SIGTERM")
 
 	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
 	if err != nil {
@@ -110,14 +113,17 @@ func main() {
 			panic(1)
 		}
 		cmd := commands.ScriptCommand{}.NewWithFlags(clientset, log, commands.ScriptFlags{
-			JobTemplate: *scriptJobTemplateFile,
-			Attach:      *scriptAttach,
-			DryRun:      *scriptDryRun,
-			Image:       *scriptBaseImage,
-			Shell:       *scriptShell,
-			Script:      *scriptFile,
-			Args:        *scriptArgs,
-			Namespace:   *scriptNamespace,
+			JobTemplate:        *scriptJobTemplateFile,
+			Attach:             *scriptAttach,
+			DryRun:             *scriptDryRun,
+			Image:              *scriptBaseImage,
+			Shell:              *scriptShell,
+			Script:             *scriptFile,
+			Args:               *scriptArgs,
+			Namespace:          *scriptNamespace,
+			InitTimeoutSeconds: *scriptInitTimeoutSeconds,
+			KeepOnSig:          *scriptKeepOnSig,
+			KeepResources:      *scriptKeepResources,
 		})
 
 		if err := cmd.Exec(); err != nil {

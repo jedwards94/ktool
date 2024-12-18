@@ -13,7 +13,9 @@ func IfThenElse(condition bool, a interface{}, b interface{}) interface{} {
 }
 
 // parse a string to kubernetes-like args list, ie.
-// ArgsToList(`-foo 1 -bar arg "quoted arg"`) -> []string{ "-foo", "1", "-bar", "args", "quoted arg" }
+//
+//	arglist := ArgsToList(`-foo 1 -bar arg "quoted arg"`)
+//	expected := []string{ "-foo", "1", "-bar", "args", "quoted arg" }
 func ArgsToList(strArgs string) []string {
 	re := regexp.MustCompile(`"([^"]*)"|'([^']*)'|(\S+)`)
 	matches := re.FindAllStringSubmatch(strArgs, -1)

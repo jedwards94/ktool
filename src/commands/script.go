@@ -52,25 +52,27 @@ const (
 )
 
 type ScriptFlags struct {
-	JobTemplate string
-	Attach      bool
-	DryRun      bool
-	Image       string
-	Namespace   string
-	Shell       string
-	Script      string
-	Args        string
+	JobTemplate        string
+	Attach             bool
+	DryRun             bool
+	Image              string
+	Namespace          string
+	Shell              string
+	Script             string
+	Args               string
+	InitTimeoutSeconds uint
+	KeepOnSig          bool
+	KeepResources      bool
 }
 
 type ScriptCommand struct {
-	flags              ScriptFlags
-	kClient            kubernetes.Interface
-	uuid               string
-	context            context.Context
-	job                *batchv1.Job
-	configMap          *v1.ConfigMap
-	logger             logger.Log
-	initTimeoutSeconds int
+	flags     ScriptFlags
+	kClient   kubernetes.Interface
+	uuid      string
+	context   context.Context
+	job       *batchv1.Job
+	configMap *v1.ConfigMap
+	logger    logger.Log
 }
 
 // Creates the command struct ready to execute
@@ -80,12 +82,11 @@ func (s ScriptCommand) NewWithFlags(
 	flags ScriptFlags,
 ) ScriptCommand {
 	return ScriptCommand{
-		flags:              flags,
-		kClient:            kClient,
-		uuid:               uuid.NewString()[:5],
-		context:            context.Background(),
-		logger:             log.New("script"),
-		initTimeoutSeconds: 300,
+		flags:   flags,
+		kClient: kClient,
+		uuid:    uuid.NewString()[:5],
+		context: context.Background(),
+		logger:  log.New("script"),
 	}
 }
 
@@ -277,6 +278,9 @@ func (s *ScriptCommand) deleteJob() error {
 	if s.job == nil {
 		return nil
 	}
+	if s.flags.KeepResources {
+		return nil
+	}
 	delPol := metav1.DeletePropagationForeground
 	delOptions := metav1.DeleteOptions{
 		PropagationPolicy: &delPol,
@@ -332,6 +336,9 @@ func (s *ScriptCommand) createConfigMap() error {
 // Deletes the ConfigMap from the cluster
 func (s *ScriptCommand) deleteConfigMap() error {
 	if s.configMap == nil {
+		return nil
+	}
+	if s.flags.KeepResources {
 		return nil
 	}
 	delPol := metav1.DeletePropagationBackground
@@ -456,7 +463,8 @@ func (s *ScriptCommand) streamPodLogs(log chan struct {
 
 // Waits for a given pod poitner to be in Running Phase
 func (s *ScriptCommand) waitForPodToStart(pod *v1.Pod) error {
-	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Duration(s.initTimeoutSeconds)*time.Second))
+	timeout := s.flags.InitTimeoutSeconds
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Duration(timeout)*time.Second))
 	defer cancel()
 	l := s.logger.New(pod.Name)
 	l.Debug("waiting for pod %s to be running", pod.Name)
@@ -472,7 +480,7 @@ loop:
 	for {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("timeout while waiting pod %s to start in %d seconds, %v", pod.Name, timeout, ctx.Err())
 		case event := <-watcher.ResultChan():
 			switch event.Type {
 			case watch.Added:
@@ -507,6 +515,11 @@ loop:
 
 // Go routine that deletes the job and configmap when a SIGINT or SIGTERM are received
 func (s *ScriptCommand) interruptClenaup() {
+
+	if s.flags.KeepOnSig {
+		return
+	}
+
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
