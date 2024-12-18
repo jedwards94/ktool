@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/imdario/mergo"
@@ -20,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer/json"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -59,13 +61,14 @@ type ScriptFlags struct {
 }
 
 type ScriptCommand struct {
-	flags     ScriptFlags
-	kClient   kubernetes.Interface
-	uuid      string
-	context   context.Context
-	job       *batchv1.Job
-	configMap *v1.ConfigMap
-	logger    logger.Log
+	flags              ScriptFlags
+	kClient            kubernetes.Interface
+	uuid               string
+	context            context.Context
+	job                *batchv1.Job
+	configMap          *v1.ConfigMap
+	logger             logger.Log
+	initTimeoutSeconds int
 }
 
 // Creates the command struct ready to execute
@@ -75,11 +78,12 @@ func (s ScriptCommand) NewWithFlags(
 	flags ScriptFlags,
 ) ScriptCommand {
 	return ScriptCommand{
-		flags:   flags,
-		kClient: kClient,
-		uuid:    uuid.NewString()[:5],
-		context: context.Background(),
-		logger:  log.New("script"),
+		flags:              flags,
+		kClient:            kClient,
+		uuid:               uuid.NewString()[:5],
+		context:            context.Background(),
+		logger:             log.New("script"),
+		initTimeoutSeconds: 300,
 	}
 }
 
@@ -349,51 +353,60 @@ func (s *ScriptCommand) jobPod() (*v1.Pod, error) {
 	return &pods.Items[0], nil
 }
 
-// Gets a Pod by its name
-func (s *ScriptCommand) podByName(name string) (*v1.Pod, error) {
-	pod, err := s.kClient.CoreV1().Pods(s.flags.Namespace).Get(s.context, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-	return pod, nil
-}
-
-// Monitors the pod status and phase to notify when it dies or ends successfully
+// Watchs the pod status and phase to notify when it dies or ends successfully
 // Intended to be called a a go rotuine
-func (s *ScriptCommand) monitorPod(done chan bool, name string) {
+func (s *ScriptCommand) watchPod(done chan error, name string) {
 	l := s.logger.New(name)
 	s.logger.Debug("monitoring pod \"%s\" started", name)
-	for {
-		monitorPod, err := s.podByName(name)
-		if err != nil {
-			l.Error("error while monitoring the pod, %v", err)
-			break
-		}
-
-		if monitorPod.Status.ContainerStatuses[0].State.Terminated != nil {
-			l.Info("exit code: %d", monitorPod.Status.ContainerStatuses[0].State.Terminated.ExitCode)
-			l.Info("reason: %s", monitorPod.Status.ContainerStatuses[0].State.Terminated.Reason)
-			break
+	fieldSelector := fmt.Sprintf("metadata.name=%s", name)
+	watcher, err := s.kClient.CoreV1().Pods(s.flags.Namespace).Watch(context.TODO(), metav1.ListOptions{
+		FieldSelector: fieldSelector,
+	})
+	if err != nil {
+		done <- err
+	}
+	defer watcher.Stop()
+	for event := range watcher.ResultChan() {
+		switch event.Type {
+		case watch.Added:
+			continue
+		case watch.Modified:
+			pod := event.Object.(*v1.Pod)
+			if pod.Status.ContainerStatuses[0].State.Terminated != nil {
+				l.Info("exit code: %d", pod.Status.ContainerStatuses[0].State.Terminated.ExitCode)
+				l.Info("reason: %s", pod.Status.ContainerStatuses[0].State.Terminated.Reason)
+				l.Info("message: %s", pod.Status.ContainerStatuses[0].State.Terminated.Message)
+				done <- nil
+				return
+			}
+		case watch.Deleted:
+			pod := event.Object.(*v1.Pod)
+			done <- fmt.Errorf("watcher error. pod %s deleted", pod.Name)
+			return
+		case watch.Error:
+			err := event.Object.(*metav1.Status)
+			done <- fmt.Errorf("watcher error. apiStatus=%s message=%s reason=%s", err.Status, err.Message, err.Reason)
+			return
 		}
 	}
-	done <- true
+
 }
 
-// Streams the logs of a named pod to stdout
-// Intended to be called a a go rotuine
-func (s *ScriptCommand) streamPodLogs(done chan bool, name string) {
+// Streams the logs of a named pod to stdout and return the number of lines readed and the error
+func (s *ScriptCommand) streamPodLogs(name string) (int, error) {
 	l := s.logger.New(name)
+	linesOfLog := 0
 	req := s.kClient.CoreV1().Pods(s.flags.Namespace).GetLogs(name, &v1.PodLogOptions{
 		Follow:    true,
 		Container: containerName,
 	})
-	stream, err := req.Stream(context.Background())
+	stream, err := req.Stream(s.context)
 	if err != nil {
 		l.Error("error while staring log stream, %v", err)
-		return
+		return linesOfLog, err
 	}
 	defer stream.Close()
-	buf := make([]byte, 2000)
+	buf := make([]byte, 1024)
 	l.Info("starting log stream for pod %s on container ktool-script", name)
 	for {
 		n, err := stream.Read(buf)
@@ -403,34 +416,63 @@ func (s *ScriptCommand) streamPodLogs(done chan bool, name string) {
 		}
 		if err != nil {
 			l.Error("error reading log stream: %v", err)
-			break
+			return linesOfLog, err
 		}
 		l.Log(string(buf[:n]))
+		linesOfLog++
 	}
-	done <- true
+	return linesOfLog, nil
 }
 
 // Waits for a given pod poitner to be in Running Phase
-// Intended to be called a a go rotuine
-func (s *ScriptCommand) waitForPodToStart(done chan bool, pod *v1.Pod) {
+func (s *ScriptCommand) waitForPodToStart(pod *v1.Pod) error {
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Duration(s.initTimeoutSeconds)*time.Second))
+	defer cancel()
 	l := s.logger.New(pod.Name)
 	l.Debug("waiting for pod %s to be running", pod.Name)
+	labelSelector := fmt.Sprintf(labelSelectorFmt, s.job.Name)
+	watcher, err := s.kClient.CoreV1().Pods(s.flags.Namespace).Watch(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil {
+		return err
+	}
+	defer watcher.Stop()
 loop:
 	for {
-		pod, err := s.podByName(pod.Name)
-		switch pod.Status.Phase {
-		case v1.PodPending, v1.PodUnknown:
-			continue loop
-		case v1.PodRunning, v1.PodSucceeded, v1.PodFailed:
-			break loop
-		}
-		if err != nil {
-			l.Error("error while waiting for pod to start, %v", err)
-			break
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event := <-watcher.ResultChan():
+			switch event.Type {
+			case watch.Added:
+				continue loop
+			case watch.Modified:
+				pod := event.Object.(*v1.Pod)
+				switch pod.Status.Phase {
+				case v1.PodPending, v1.PodUnknown:
+					continue loop
+				case v1.PodRunning, v1.PodSucceeded:
+					break loop
+				case v1.PodFailed:
+					jobContainerStatus := pod.Status.ContainerStatuses[0].State
+					err := fmt.Errorf("pod failed. message=\"%s\" reason=\"%s\"", pod.Status.Message, pod.Status.Reason)
+					if jobContainerStatus.Terminated != nil {
+						err = fmt.Errorf("pod failed. message=\"%s\" reason=\"%s\"", jobContainerStatus.Terminated.Message, jobContainerStatus.Terminated.Reason)
+					}
+					return err
+				}
+			case watch.Deleted:
+				pod := event.Object.(*v1.Pod)
+				return fmt.Errorf("watcher error. pod %s deleted", pod.Name)
+			case watch.Error:
+				err := event.Object.(*metav1.Status)
+				return fmt.Errorf("watcher error. apiStatus=%s message=%s reason=%s", err.Status, err.Message, err.Reason)
+			}
 		}
 	}
 	l.Info("pod %s is running!", pod.Name)
-	done <- true
+	return nil
 }
 
 // Runs the command. This creates the ConfigMap and the Job in the cluster, wait for the Job to have a
@@ -451,23 +493,23 @@ func (s *ScriptCommand) run() error {
 		return err
 	}
 
-	podRunning := make(chan bool)
-	defer close(podRunning)
-	go s.waitForPodToStart(podRunning, pod)
-	<-podRunning
-
-	donePod := make(chan bool)
-	defer close(donePod)
-	go s.monitorPod(donePod, pod.Name)
-
-	if s.flags.Attach {
-		doneLogs := make(chan bool)
-		defer close(doneLogs)
-		go s.streamPodLogs(doneLogs, pod.Name)
-		<-doneLogs
+	if err := s.waitForPodToStart(pod); err != nil {
+		return err
 	}
 
-	<-donePod
+	watcher := make(chan error)
+	defer close(watcher)
+	go s.watchPod(watcher, pod.Name)
+
+	if s.flags.Attach {
+		if _, err := s.streamPodLogs(pod.Name); err != nil {
+			return err
+		}
+	}
+
+	if err := <-watcher; err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -489,7 +531,7 @@ func (s *ScriptCommand) dryRun() error {
 }
 
 // Execute the Script Command Routine.
-// When dry-run flag is present, this will print both COnfigMap and Job manifests that will be applied.
+// When dry-run flag is present, this will print both ConfigMap and Job manifests that will be applied.
 // if it isn't present, this will create those manifests in the cluster and start monitoring the Pod
 // additionally if the attach flag is true, this will also stream the logs to stdout.
 func (s *ScriptCommand) Exec() error {
