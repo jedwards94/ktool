@@ -7,7 +7,7 @@ metadata:
   generateName: ktool-script-
   labels:
     ktool-app: "true"
-    script-extension: py
+    script-extension: sh
   namespace: test
 spec:
   template:
@@ -15,9 +15,9 @@ spec:
     spec:
       containers:
       - command:
-        - python
-        - /ktool/script.py
-        image: python
+        - bin/sh
+        - /ktool/script.sh
+        image: busybox
         imagePullPolicy: Always
         name: ktool-script
         resources: {}

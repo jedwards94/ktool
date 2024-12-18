@@ -1,41 +1,7 @@
-apiVersion: batch/v1
-kind: Job
-metadata:
-  namespace: default
-  labels:
-    app: myapp
 spec:
   template:
-    metadata:
-      name: myapp
-      labels:
-        app: myapp
-      annotations:
-        example: "myapp"
     spec:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - key: disktype
-                operator: In
-                values:
-                  - ssd
       containers:
-      - name: "python"
-        image: python:3.6
-        command: ['sh', '-c', 'python3 manage.py makemigrations && python3 manage.py migrate']
-        env:
-        - name: ENV_NAME
-          value: ENV_VALUE
-        
-        volumeMounts:
-        - name: localtime
-          mountPath: /etc/localtime
-
-      volumes:
-      - name: localtime
-        hostPath:
-          path: /usr/share/zoneinfo/Asia/Shanghai
-      restartPolicy: OnFailure
-      dnsPolicy: ClusterFirst
+      - env:
+        - name: PYTHONUNBUFFERED
+          value: '1'

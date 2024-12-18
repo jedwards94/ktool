@@ -1,0 +1,12 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: ktool-script-1
+  namespace: test
+data:
+  script.sh: |
+    echo "test 1"
+    sleep 2
+    echo "test 2"
+    sleep 2
+    echo "test 3"

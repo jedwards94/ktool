@@ -6,7 +6,7 @@ metadata:
   labels:
     app: test
     ktool-app: "true"
-    script-extension: py
+    script-extension: sh
   annotations:
     app.ktool.io/short-uuid: "1"
     app.ktool.io/type: script
@@ -30,12 +30,12 @@ spec:
                 - ssd
       containers:
       - command:
-        - python
-        - /ktool/script.py
+        - bin/sh
+        - /ktool/script.sh
         env:
         - name: ENV_NAME
           value: ENV_VALUE
-        image: python
+        image: busybox
         imagePullPolicy: Always
         name: ktool-script
         resources: {}

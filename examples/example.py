@@ -1,6 +1,8 @@
 import time
-print("hello world")
-time.sleep(10)
-print("something more")
-time.sleep(3)
-print("goodbye!")
+
+
+numbers = [10, 20, 30, 40, 50]
+
+for num in numbers:
+    print(f"Number: {num}")
+    time.sleep(5)
