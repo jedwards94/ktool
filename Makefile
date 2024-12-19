@@ -66,6 +66,8 @@ else
 		-ldflags="$(GO_LDFLAGS) -X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.BuildTime=$(BUILD_TIME)" \
 		-o ../$(BUILD_DIR)/$(BIN_NAME) .
 endif
+	tar -czf $(BUILD_DIR)/$(BIN_NAME).tar.gz -C $(BUILD_DIR) $(BIN_NAME)
+	zip $(BUILD_DIR)/$(BIN_NAME).zip -j $(BUILD_DIR)/$(BIN_NAME)
 
 ## Run the application
 run: build
